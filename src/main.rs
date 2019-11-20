@@ -134,9 +134,11 @@ async fn cmd_history(discord: DiscordClient, matches: &clap::ArgMatches<'_>) -> 
 }
 
 async fn cmd_stream(discord: DiscordClient, matches: &clap::ArgMatches<'_>) -> AnyResult<()> {
+    let user_env = std::env::var("INFLUX_USERNAME").ok().unwrap_or("".to_owned());
+    let pass_env = std::env::var("INFLUX_PASSWORD").ok().unwrap_or("".to_owned());
     let credentials = influent::client::Credentials {
-        username: "",
-        password: "",
+        username: Box::leak(user_env.into_boxed_str()),
+        password: Box::leak(pass_env.into_boxed_str()),
         database: "discord",
     };
     let serializer = LineSerializer::new();
