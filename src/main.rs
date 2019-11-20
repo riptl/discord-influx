@@ -24,7 +24,6 @@ use futures::{Stream, StreamExt};
 use influent::client::{Client, Precision};
 use influent::client::http::HttpClient as InfluxClient;
 use influent::measurement::{Measurement, Value};
-use influent::serializer::Serializer;
 use influent::serializer::line::LineSerializer;
 use batch::ChunksTimeoutStreamExt;
 
@@ -40,21 +39,14 @@ enum Error {
 #[tokio::main]
 async fn main() -> AnyResult<()> {
     let matches = clap_app!(("discord-influx") =>
-        (@setting SubcommandRequiredElseHelp)
         (version: "0.1")
         (author: "Richard Patel <me@terorie.dev>")
         (about: "Discord to Influx exporter")
-        (@subcommand history =>
-            (about: "Exports history to stdout")
-            (@arg guild: +required "Database guild handle (\"NAME/ID\")")
-        )
-        (@subcommand stream =>
-            (about: "Live streams message stats to database")
-            (@arg host: -h --host +takes_value ... default_value("http://localhost:8086") "Influx hosts")
-            (@arg start: -s --start +takes_value default_value("latest") "Start ID")
-            (@arg database: -d --database +takes_value default_value("discord") "Influx database")
-            (@arg guilds: ... +required "Database guild handles (\"guild1/1337\", \"guild2/42069\"...)")
-        )
+        (about: "Live streams message stats to database")
+        (@arg host: -h --host +takes_value ... default_value("http://localhost:8086") "Influx hosts")
+        (@arg start: -s --start +takes_value default_value("latest") "Start ID")
+        (@arg database: -d --database +takes_value default_value("discord") "Influx database")
+        (@arg guilds: ... +required "Database guild handles (\"guild1/1337\", \"guild2/42069\"...)")
     ).get_matches();
 
     let discord_token = match std::env::var("DISCORD_TOKEN") {
@@ -66,74 +58,6 @@ async fn main() -> AnyResult<()> {
         Err(e) => panic!(e),
     };
     let discord = DiscordClient::new(&discord_token);
-    
-    if let Some(ref matches) = matches.subcommand_matches("history") {
-        cmd_history(discord, matches).await?;
-    }
-    else if let Some(ref matches) = matches.subcommand_matches("stream") {
-        cmd_stream(discord, matches).await?;
-    }
-
-    Ok(())
-}
-
-fn parse_guild_input(input: &str) -> Option<(String, String)> {
-    let split: Vec<&str> = input.splitn(2, '/').collect();
-    if split.len() <= 1 {
-        None
-    } else {
-        Some((split[0].to_owned(), split[1].to_owned()))
-    }
-}
-
-async fn cmd_history(discord: DiscordClient, matches: &clap::ArgMatches<'_>) -> AnyResult<()> {
-    println!("# DDL");
-    println!("# CREATE DATABASE discord");
-    println!();
-    println!("# DML");
-    println!("# CONTEXT-DATABASE: discord");
-
-    let guild = matches.value_of("guild").unwrap();
-    // TODO Proper usage of failure
-    let (guild_handle, guild_id) = parse_guild_input(&guild)
-        .ok_or_else(|| Error::InvalidGuild(guild.to_owned()).compat())?;
-    let guild_handle_str = &guild_handle;
-
-    let channels = discord.guild_get_channels(&guild_id).await?;
-    for channel in channels.iter() {
-        let messages = stream_messages_to_end(&discord, &channel.id, RangeParam::After("0".to_owned()))
-            .map(move |message| Message {
-                time: message.timestamp.timestamp() / 60,
-                location: Location {
-                    guild: guild_handle_str.to_owned(),
-                    channel: channel.name.clone(),
-                },
-            })
-            .fuse();
-        // Buffer 3s worth of messages.
-        // Since chat history in a single channel is guaranteed
-        // to be ordered anyways, buffering should be obsolete.
-        MessageAggregate::new(Box::pin(messages), 3)
-            .map(|aggs| futures::stream::iter(aggs.into_iter()))
-            .flatten()
-            .map(|agg| {
-                let mut m = Measurement::new("messages");
-                m.add_tag("guild", agg.location.guild);
-                m.add_tag("channel", agg.location.channel);
-                m.add_field("count", Value::Integer(agg.count as i64));
-                m.set_timestamp(agg.time);
-                m
-            })
-            .for_each(|m| async move {
-                let serializer = LineSerializer::new();
-                println!("{}", serializer.serialize(&m));
-            })
-            .await;
-    }
-    Ok(())
-}
-
-async fn cmd_stream(discord: DiscordClient, matches: &clap::ArgMatches<'_>) -> AnyResult<()> {
     let user_env = std::env::var("INFLUX_USERNAME").ok().unwrap_or("".to_owned());
     let pass_env = std::env::var("INFLUX_PASSWORD").ok().unwrap_or("".to_owned());
     let credentials = influent::client::Credentials {
@@ -187,7 +111,15 @@ async fn cmd_stream(discord: DiscordClient, matches: &clap::ArgMatches<'_>) -> A
     Ok(())
 }
 
-// TODO Abort mechanism
+fn parse_guild_input(input: &str) -> Option<(String, String)> {
+    let split: Vec<&str> = input.splitn(2, '/').collect();
+    if split.len() <= 1 {
+        None
+    } else {
+        Some((split[0].to_owned(), split[1].to_owned()))
+    }
+}
+
 async fn stream_to_influx(discord: DiscordClient, influx: Arc<InfluxClient<'_>>, guild_handle: String, chan: discord::Channel) {
     let start = RangeParam::After(chan.last_message_id
         .unwrap_or_else(|| "0".to_owned()));
