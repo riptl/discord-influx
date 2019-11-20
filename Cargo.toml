@@ -1,0 +1,24 @@
+[package]
+name = "discord-influx"
+version = "0.1.0"
+authors = ["Richard Patel <me@terorie.dev>"]
+edition = "2018"
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+clap = "2"
+crossbeam = "0.7"
+failure = "0.1"
+futures = { version = "0.3", features = ["compat"] }
+futures-timer = "2.0"
+influent = { git = "https://github.com/terorie/influent.rs", branch = "dev", version = "0.6" }
+log = "0.4"
+reqwest = { version = "0.10.0-alpha.2", features = ["json"] }
+percent-encoding = "2.1"
+pin-utils = "0.1.0-alpha.4"
+serde = "1.0"
+serde_derive = "1.0"
+tokio = "0.2.0-alpha.6"
+
+[profile.release]
+panic = 'abort'
