@@ -46,9 +46,11 @@ async fn main() -> AnyResult<()> {
         (@arg host: -h --host +takes_value ... default_value("http://localhost:8086") "Influx hosts")
         (@arg start: -s --start +takes_value default_value("latest") "Start ID")
         (@arg database: -d --database +takes_value default_value("discord") "Influx database")
+        (@arg all: -a --all "Try to dump all channels, including hidden ones")
         (@arg guilds: ... +required "Database guild handles (\"guild1/1337\", \"guild2/42069\"...)")
     ).get_matches();
 
+    // Build the Discord client
     let discord_token = match std::env::var("DISCORD_TOKEN") {
         Ok(t) => t,
         Err(std::env::VarError::NotPresent) => {
@@ -58,8 +60,10 @@ async fn main() -> AnyResult<()> {
         Err(e) => panic!(e),
     };
     let discord = DiscordClient::new(&discord_token);
-    let user_env = std::env::var("INFLUX_USERNAME").ok().unwrap_or("".to_owned());
-    let pass_env = std::env::var("INFLUX_PASSWORD").ok().unwrap_or("".to_owned());
+
+    // Build the Influx client
+    let user_env = std::env::var("INFLUX_USERNAME").ok().unwrap_or_else(|| "".to_owned());
+    let pass_env = std::env::var("INFLUX_PASSWORD").ok().unwrap_or_else(|| "".to_owned());
     let credentials = influent::client::Credentials {
         username: Box::leak(user_env.into_boxed_str()),
         password: Box::leak(pass_env.into_boxed_str()),
@@ -74,11 +78,17 @@ async fn main() -> AnyResult<()> {
         influx.add_host(host_leak);
     }
     let influx = Arc::new(influx);
+
+    // --start flag
     let mut start_override = Some(matches.value_of("start").unwrap());
     if start_override == Some("latest") {
         start_override = None;
     }
 
+    // --all flag
+    let dump_all = matches.is_present("all");
+
+    // Process guilds
     let guild_matches = matches.values_of_lossy("guilds").unwrap();
     let wg = WaitGroup::new();
     for guild_match in guild_matches {
@@ -90,7 +100,19 @@ async fn main() -> AnyResult<()> {
         let discord = discord.clone();
         let channels = discord.guild_get_channels(&guild_id).await?
             .into_iter()
-            .filter(|c| c.channel_type == 0);
+            // Only fetch text channels
+            .filter(|c| c.channel_type == 0)
+            // If no --all flag, omit "hidden" channels.
+            // I interpret hidden as "has no deny overwrite for READ_MESSAGE_HISTORY on @everyone".
+            .filter(|c| dump_all ||
+                c.permission_overwrites.as_ref()
+                    // Search for that overwrite
+                    .and_then(|perms|
+                        perms.iter().find(|p|
+                            p.id == guild_id &&
+                            p.deny & (discord::READ_MESSAGE_HISTORY | discord::VIEW_CHANNEL) != 0))
+                    // If no such overwrite was found, it passes the filter
+                    .is_none());
         for mut channel in channels {
             eprintln!("Polling {} #{}", guild_handle, channel.name);
 

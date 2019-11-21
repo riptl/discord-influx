@@ -123,6 +123,7 @@ pub struct Channel {
     pub channel_type: i32,
     pub name: String,
     pub last_message_id: Option<String>,
+    pub permission_overwrites: Option<Vec<Overwrite>>,
 }
 
 #[derive(Deserialize)]
@@ -139,6 +140,26 @@ pub struct Author {
     pub id: String,
     pub username: String,
 }
+
+#[derive(Deserialize)]
+pub struct Overwrite {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub overwrite_type: OverwriteType,
+    pub allow: u64,
+    pub deny: u64,
+}
+
+#[derive(Deserialize)]
+pub enum OverwriteType {
+    #[serde(rename = "role")]
+    Role,
+    #[serde(rename = "member")]
+    Member,
+}
+
+pub const VIEW_CHANNEL: u64 = 0x0000_0400;
+pub const READ_MESSAGE_HISTORY: u64 = 0x0001_0000;
 
 fn url_escape(segment: &'_ str) -> percent_encoding::PercentEncode<'_> {
     percent_encoding::utf8_percent_encode(segment, percent_encoding::NON_ALPHANUMERIC)
