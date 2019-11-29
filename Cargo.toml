@@ -3,6 +3,14 @@ name = "discord-influx"
 version = "0.1.0"
 authors = ["Richard Patel <me@terorie.dev>"]
 edition = "2018"
+repository = "https://github.com/terorie/discord-influx"
+readme = "README.md"
+keywords = ["discord", "influx", "influxdb", "exporter", "grafana"]
+categories = ["visualization"]
+license = "MIT"
+
+[badges]
+maintenance = { status = "passively-maintained" }
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
