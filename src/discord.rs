@@ -1,9 +1,10 @@
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, Utc};
-use serde::{Serialize, Serializer};
-use serde_derive::{Deserialize};
 use reqwest::header;
+use serde::{Serialize, Serializer};
+use serde_derive::Deserialize;
+use tokio::time::Instant;
 
 #[derive(Clone)]
 pub struct Client {
@@ -16,13 +17,16 @@ impl Client {
     pub fn new(token: &str) -> Self {
         // Build default headers
         let mut headers = header::HeaderMap::new();
-        headers.insert(header::AUTHORIZATION, header::HeaderValue::from_str(token).expect("Illegal token"));
+        headers.insert(
+            header::AUTHORIZATION,
+            header::HeaderValue::from_str(token).expect("Illegal token"),
+        );
         // Build HTTP client
         let client = reqwest::Client::builder()
             .default_headers(headers)
             .build()
             .expect("Failed to build HTTP client");
-        Self { 
+        Self {
             client,
             max_retries: 50,
             default_delay: Duration::from_secs(1),
@@ -30,39 +34,62 @@ impl Client {
     }
 
     pub async fn guild_get_channels(&self, guild_id: &str) -> reqwest::Result<Vec<Channel>> {
-        let url = format!("https://discordapp.com/api/v6/guilds/{}/channels", url_escape(guild_id));
-        self.client.get(&url)
-            .send().await?
+        let url = format!(
+            "https://discordapp.com/api/v6/guilds/{}/channels",
+            url_escape(guild_id)
+        );
+        self.client
+            .get(&url)
+            .send()
+            .await?
             .error_for_status()?
-            .json().await
+            .json()
+            .await
     }
 
-    pub async fn channel_get_messages(&self, channel_id: &str, param: RangeParam<String>, limit: i32) -> reqwest::Result<Vec<Message>>{
-        let url = format!("https://discordapp.com/api/v6/channels/{}/messages", url_escape(channel_id));
-        self.get_retry(|| self.client.get(&url)
-            .query(&[("limit", limit)])
-            .query(&[&param])
-            .build().unwrap())
-            .await?
-            .json().await
+    pub async fn channel_get_messages(
+        &self,
+        channel_id: &str,
+        param: RangeParam<String>,
+        limit: i32,
+    ) -> reqwest::Result<Vec<Message>> {
+        let url = format!(
+            "https://discordapp.com/api/v6/channels/{}/messages",
+            url_escape(channel_id)
+        );
+        self.get_retry(|| {
+            self.client
+                .get(&url)
+                .query(&[("limit", limit)])
+                .query(&[&param])
+                .build()
+                .unwrap()
+        })
+        .await?
+        .json()
+        .await
     }
 
     pub(crate) async fn get_retry<T>(&self, make_request: T) -> reqwest::Result<reqwest::Response>
-        where T: Fn() -> reqwest::Request
+    where
+        T: Fn() -> reqwest::Request,
     {
         let mut delay_override: Option<Instant> = None;
         let mut last_err: Option<reqwest::Error> = None;
         for i in 0..self.max_retries {
             if i != 0 {
-                let instant = delay_override
-                    .unwrap_or(tokio::clock::now() + self.default_delay);
-                tokio::timer::delay(instant).await;
+                let instant = delay_override.unwrap_or(Instant::now() + self.default_delay);
+                tokio::time::delay_until(instant).await;
             }
-            let res = self.client.execute(make_request())
+            let res = self
+                .client
+                .execute(make_request())
                 .await
                 .map(|resp| {
                     if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                        delay_override = resp.headers().get("X-RateLimit-Reset")
+                        delay_override = resp
+                            .headers()
+                            .get("X-RateLimit-Reset")
                             .and_then(|h| h.to_str().ok())
                             .and_then(|s| s.parse::<u64>().ok())
                             .map(Duration::from_secs)
@@ -70,7 +97,7 @@ impl Client {
                             .and_then(|t| t.duration_since(SystemTime::now()).ok())
                             .map(|d| {
                                 eprintln!("Rate limited, retrying in {} ms", d.as_millis());
-                                tokio::clock::now() + d
+                                Instant::now() + d
                             });
                     }
                     resp
@@ -79,8 +106,8 @@ impl Client {
             match res {
                 Err(e) => {
                     last_err = Some(e);
-                    continue
-                },
+                    continue;
+                }
                 Ok(v) => return Ok(v),
             };
         }
@@ -111,8 +138,9 @@ impl<T: Serialize> Serialize for RangeParam<T> {
         match self {
             RangeParam::Around(v) => ("around", v),
             RangeParam::Before(v) => ("before", v),
-            RangeParam::After(v)  => ("after", v),
-        }.serialize(serializer)
+            RangeParam::After(v) => ("after", v),
+        }
+        .serialize(serializer)
     }
 }
 

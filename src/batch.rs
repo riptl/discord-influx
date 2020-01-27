@@ -1,22 +1,18 @@
 // Source: https://github.com/mre/tokio-batch/blob/master/src/lib.rs
 
+use futures::stream::{Fuse, FusedStream, Stream};
+use futures::task::{Context, Poll};
+use futures::Future;
+use futures::StreamExt;
 use std::mem;
 use std::pin::Pin;
-use futures::stream::{Fuse, FusedStream, Stream};
-use futures::Future;
-use futures::task::{Context, Poll};
-use futures::StreamExt;
-#[cfg(feature = "sink")]
-use futures_sink::Sink;
-use pin_utils::{unsafe_pinned, unsafe_unpinned};
-
 use std::time::Duration;
-use futures_timer::Delay;
+use tokio::time::Delay;
 
 pub trait ChunksTimeoutStreamExt: Stream {
     fn chunks_timeout(self, capacity: usize, duration: Duration) -> ChunksTimeout<Self>
     where
-        Self: Sized,
+        Self: Sized + Unpin,
     {
         ChunksTimeout::new(self, capacity, duration)
     }
@@ -38,12 +34,8 @@ impl<St: Unpin + Stream> Unpin for ChunksTimeout<St> {}
 
 impl<St: Stream> ChunksTimeout<St>
 where
-    St: Stream,
+    St: Stream + Unpin,
 {
-    unsafe_unpinned!(items: Vec<St::Item>);
-    unsafe_pinned!(clock: Option<Delay>);
-    unsafe_pinned!(stream: Fuse<St>);
-
     pub fn new(stream: St, capacity: usize, duration: Duration) -> ChunksTimeout<St> {
         assert!(capacity > 0);
 
@@ -58,29 +50,31 @@ where
 
     fn take(mut self: Pin<&mut Self>) -> Vec<St::Item> {
         let cap = self.cap;
-        mem::replace(self.as_mut().items(), Vec::with_capacity(cap))
+        mem::replace(&mut self.items, Vec::with_capacity(cap))
     }
 }
 
-impl<St: Stream> Stream for ChunksTimeout<St> {
+impl<St> Stream for ChunksTimeout<St>
+where
+    St: Stream + Unpin,
+{
     type Item = Vec<St::Item>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
-            match self.as_mut().stream().poll_next(cx) {
+            match Stream::poll_next(Pin::new(&mut self.stream), cx) {
                 Poll::Ready(item) => match item {
                     // Push the item into the buffer and check whether it is full.
                     // If so, replace our buffer with a new and empty one and return
                     // the full one.
                     Some(item) => {
                         if self.items.is_empty() {
-                            *self.as_mut().clock() =
-                                Some(Delay::new(self.duration));
+                            self.clock = Some(tokio::time::delay_for(self.duration));
                         }
-                        self.as_mut().items().push(item);
+                        self.items.push(item);
                         if self.items.len() >= self.cap {
-                            *self.as_mut().clock() = None;
-                            return Poll::Ready(Some(self.as_mut().take()));
+                            self.clock = None;
+                            return Poll::Ready(Some(ChunksTimeout::take(self)));
                         } else {
                             // Continue the loop
                             continue;
@@ -93,7 +87,7 @@ impl<St: Stream> Stream for ChunksTimeout<St> {
                         let last = if self.items.is_empty() {
                             None
                         } else {
-                            let full_buf = mem::replace(self.as_mut().items(), Vec::new());
+                            let full_buf = mem::replace(&mut self.items, Vec::new());
                             Some(full_buf)
                         };
 
@@ -104,15 +98,19 @@ impl<St: Stream> Stream for ChunksTimeout<St> {
                 Poll::Pending => {}
             }
 
-            match self.as_mut().clock().as_pin_mut().map(|clock| clock.poll(cx)) {
+            match self
+                .clock
+                .as_mut()
+                .map(|clock| Future::poll(Pin::new(clock), cx))
+            {
                 Some(Poll::Ready(())) => {
-                    *self.as_mut().clock() = None;
-                    return Poll::Ready(Some(self.as_mut().take()));
+                    self.clock = None;
+                    return Poll::Ready(Some(ChunksTimeout::take(self)));
                 }
                 Some(Poll::Pending) => {}
                 None => {
                     debug_assert!(
-                        self.items().is_empty(),
+                        self.items.is_empty(),
                         "Inner buffer is empty, but clock is available."
                     );
                 }
@@ -134,19 +132,11 @@ impl<St: Stream> Stream for ChunksTimeout<St> {
     }
 }
 
-impl<St: FusedStream> FusedStream for ChunksTimeout<St> {
+impl<St> FusedStream for ChunksTimeout<St>
+where
+    St: FusedStream + Unpin,
+{
     fn is_terminated(&self) -> bool {
         self.stream.is_terminated() & self.items.is_empty()
     }
-}
-
-// Forwarding impl of Sink from the underlying stream
-#[cfg(feature = "sink")]
-impl<S, Item> Sink<Item> for ChunksTimeout<S>
-where
-    S: Stream + Sink<Item>,
-{
-    type Error = S::Error;
-
-    delegate_sink!(stream, Item);
 }

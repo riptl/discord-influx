@@ -1,31 +1,23 @@
 mod batch;
 mod discord;
 
-use std::cmp::{
-    Ordering,
-    max,
-};
-use std::collections::{
-    BinaryHeap,
-};
+use std::cmp::{max, Ordering};
+use std::collections::BinaryHeap;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use batch::ChunksTimeoutStreamExt;
 use clap::clap_app;
 use crossbeam::sync::WaitGroup;
-use discord::{
-    Client as DiscordClient,
-    RangeParam,
-};
+use discord::{Client as DiscordClient, RangeParam};
 use failure::Fail;
 use futures::{Stream, StreamExt};
-use influent::client::{Client, Precision};
 use influent::client::http::HttpClient as InfluxClient;
+use influent::client::{Client, Precision};
 use influent::measurement::{Measurement, Value};
 use influent::serializer::line::LineSerializer;
-use batch::ChunksTimeoutStreamExt;
 
 type AnyError = Box<dyn std::error::Error>;
 type AnyResult<T> = Result<T, AnyError>;
@@ -56,14 +48,18 @@ async fn main() -> AnyResult<()> {
         Err(std::env::VarError::NotPresent) => {
             eprintln!("Variable $DISCORD_TOKEN is required!");
             std::process::exit(1);
-        },
+        }
         Err(e) => panic!(e),
     };
     let discord = DiscordClient::new(&discord_token);
 
     // Build the Influx client
-    let user_env = std::env::var("INFLUX_USERNAME").ok().unwrap_or_else(|| "".to_owned());
-    let pass_env = std::env::var("INFLUX_PASSWORD").ok().unwrap_or_else(|| "".to_owned());
+    let user_env = std::env::var("INFLUX_USERNAME")
+        .ok()
+        .unwrap_or_else(|| "".to_owned());
+    let pass_env = std::env::var("INFLUX_PASSWORD")
+        .ok()
+        .unwrap_or_else(|| "".to_owned());
     let credentials = influent::client::Credentials {
         username: Box::leak(user_env.into_boxed_str()),
         password: Box::leak(pass_env.into_boxed_str()),
@@ -98,21 +94,30 @@ async fn main() -> AnyResult<()> {
         };
         eprintln!("Processing {}", guild_handle);
         let discord = discord.clone();
-        let channels = discord.guild_get_channels(&guild_id).await?
+        let channels = discord
+            .guild_get_channels(&guild_id)
+            .await?
             .into_iter()
             // Only fetch text channels
             .filter(|c| c.channel_type == 0)
             // If no --all flag, omit "hidden" channels.
             // I interpret hidden as "has no deny overwrite for READ_MESSAGE_HISTORY on @everyone".
-            .filter(|c| dump_all ||
-                c.permission_overwrites.as_ref()
-                    // Search for that overwrite
-                    .and_then(|perms|
-                        perms.iter().find(|p|
-                            p.id == guild_id &&
-                            p.deny & (discord::READ_MESSAGE_HISTORY | discord::VIEW_CHANNEL) != 0))
-                    // If no such overwrite was found, it passes the filter
-                    .is_none());
+            .filter(|c| {
+                dump_all
+                    || c.permission_overwrites
+                        .as_ref()
+                        // Search for that overwrite
+                        .and_then(|perms| {
+                            perms.iter().find(|p| {
+                                p.id == guild_id
+                                    && p.deny
+                                        & (discord::READ_MESSAGE_HISTORY | discord::VIEW_CHANNEL)
+                                        != 0
+                            })
+                        })
+                        // If no such overwrite was found, it passes the filter
+                        .is_none()
+            });
         for mut channel in channels {
             eprintln!("Polling {} #{}", guild_handle, channel.name);
 
@@ -142,9 +147,13 @@ fn parse_guild_input(input: &str) -> Option<(String, String)> {
     }
 }
 
-async fn stream_to_influx(discord: DiscordClient, influx: Arc<InfluxClient<'_>>, guild_handle: String, chan: discord::Channel) {
-    let start = RangeParam::After(chan.last_message_id
-        .unwrap_or_else(|| "0".to_owned()));
+async fn stream_to_influx(
+    discord: DiscordClient,
+    influx: Arc<InfluxClient<'_>>,
+    guild_handle: String,
+    chan: discord::Channel,
+) {
+    let start = RangeParam::After(chan.last_message_id.unwrap_or_else(|| "0".to_owned()));
     let chan_name = chan.name.clone();
     let messages = stream_messages(&discord, &chan.id, start, Duration::from_secs(3))
         .map(move |message| Message {
@@ -191,13 +200,18 @@ async fn stream_to_influx(discord: DiscordClient, influx: Arc<InfluxClient<'_>>,
 
 // Streams all messages in the channel in ascending order, beginning with start.
 // Stops if no new messages are found.
-fn stream_messages_to_end<'a>(discord: &'a DiscordClient, channel_id: &'a str, start: RangeParam<String>)
-    -> impl Stream<Item=discord::Message> + 'a
-{
+fn stream_messages_to_end<'a>(
+    discord: &'a DiscordClient,
+    channel_id: &'a str,
+    start: RangeParam<String>,
+) -> impl Stream<Item = discord::Message> + 'a {
     // A stream of message lists
     let message_vecs = futures::stream::unfold(start, move |position| async move {
         // Get the next message list
-        match discord.channel_get_messages(channel_id, position, 100).await {
+        match discord
+            .channel_get_messages(channel_id, position, 100)
+            .await
+        {
             Ok(mut messages) => {
                 messages.reverse();
                 if messages.is_empty() {
@@ -205,15 +219,15 @@ fn stream_messages_to_end<'a>(discord: &'a DiscordClient, channel_id: &'a str, s
                     None
                 } else {
                     // Push message list, and continue after last message in list
-                    let next_pos = RangeParam::After(messages.last()
-                        .expect("No last message").id.clone());
+                    let next_pos =
+                        RangeParam::After(messages.last().expect("No last message").id.clone());
                     Some((messages, next_pos))
                 }
             }
             Err(e) => {
                 eprintln!("Message stream aborted: {}", e);
                 None
-            },
+            }
         }
     });
     message_vecs
@@ -224,23 +238,27 @@ fn stream_messages_to_end<'a>(discord: &'a DiscordClient, channel_id: &'a str, s
 }
 
 // Indefinetely streams all messages in the channel in ascending order, begging with start.
-fn stream_messages<'a>(discord: &'a DiscordClient, channel_id: &'a str, start: RangeParam<String>, poll_i: Duration)
-    -> impl Stream<Item=discord::Message> + 'a
-{
+fn stream_messages<'a>(
+    discord: &'a DiscordClient,
+    channel_id: &'a str,
+    start: RangeParam<String>,
+    poll_i: Duration,
+) -> impl Stream<Item = discord::Message> + 'a {
     let start = Arc::new(RwLock::new(start));
-    let stream_of_streams = futures::stream::unfold((start, true), move |(start, first)| async move {
-        // Cool down before getting next stream
-        if !first {
-            tokio::timer::delay(tokio::clock::now() + poll_i).await;
-        }
-        // Stream until end is reached
-        let start_copy = Arc::clone(&start);
-        let part_start = start.read().unwrap().clone();
-        let stream = stream_messages_to_end(discord, channel_id, part_start)
-            // Update the position
-            .inspect(move |m| *(start.write().unwrap()) = RangeParam::After(m.id.clone()));
-        Some((stream, (start_copy, false)))
-    });
+    let stream_of_streams =
+        futures::stream::unfold((start, true), move |(start, first)| async move {
+            // Cool down before getting next stream
+            if !first {
+                tokio::time::delay_for(poll_i).await;
+            }
+            // Stream until end is reached
+            let start_copy = Arc::clone(&start);
+            let part_start = start.read().unwrap().clone();
+            let stream = stream_messages_to_end(discord, channel_id, part_start)
+                // Update the position
+                .inspect(move |m| *(start.write().unwrap()) = RangeParam::After(m.id.clone()));
+            Some((stream, (start_copy, false)))
+        });
     stream_of_streams.flatten()
 }
 
@@ -258,7 +276,9 @@ pub struct Message {
 
 impl Ord for Message {
     fn cmp(&self, other: &Self) -> Ordering {
-        other.time.cmp(&self.time)
+        other
+            .time
+            .cmp(&self.time)
             .then_with(|| self.location.cmp(&other.location))
     }
 }
@@ -301,7 +321,7 @@ impl Aggregator {
 
         self.max_time = Some(max(self.max_time.unwrap_or(0), message.time));
         self.messages.push(message);
-        
+
         if self.max_time.expect("No max_time") - self.min_time <= self.threshold {
             return None;
         }
@@ -329,7 +349,7 @@ impl Aggregator {
         if self.messages.is_empty() {
             return None;
         }
-        // Process a group 
+        // Process a group
         let peek_msg = self.messages.peek().expect("No message to peek");
         let location = peek_msg.location.clone();
         let time = peek_msg.time;
@@ -341,13 +361,24 @@ impl Aggregator {
             }
             let msg = self.messages.pop().expect("No message to pop");
             count += 1;
-            debug_assert!(msg.time >= self.min_time, "New message in front of old message");
+            debug_assert!(
+                msg.time >= self.min_time,
+                "New message in front of old message"
+            );
         }
-        debug_assert!(self.messages.peek().map(|msg| msg.time >= self.min_time).unwrap_or(true));
+        debug_assert!(self
+            .messages
+            .peek()
+            .map(|msg| msg.time >= self.min_time)
+            .unwrap_or(true));
         if self.messages.is_empty() {
             self.max_time = None;
         }
-        Some(Aggregation { location, time, count })
+        Some(Aggregation {
+            location,
+            time,
+            count,
+        })
     }
 
     pub fn flush(&mut self) -> Option<Vec<Aggregation>> {
@@ -367,12 +398,12 @@ impl Aggregator {
 }
 
 pub struct MessageAggregate<'a> {
-    stream: Pin<Box<dyn Stream<Item=Message> + Send + 'a>>,
+    stream: Pin<Box<dyn Stream<Item = Message> + Send + 'a>>,
     aggregator: Aggregator,
 }
 
 impl<'a> MessageAggregate<'a> {
-    fn new(stream: Pin<Box<dyn Stream<Item=Message> + Send + 'a>>, window: i64) -> Self {
+    fn new(stream: Pin<Box<dyn Stream<Item = Message> + Send + 'a>>, window: i64) -> Self {
         Self {
             aggregator: Aggregator::new(window),
             stream,
