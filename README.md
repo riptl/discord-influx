@@ -54,8 +54,18 @@ export DISCORD_TOKEN=xxx
 
 ### History mode
 
-History mode backfills stats of past messages to InfluxDB.
-It runs once until the export is complete.
+History mode backfills stats of past messages to InfluxDB for the given guilds and channels.
+It runs once until the export is complete. This operation is idempotent.
+
+**Targets**
+
+Export targets are given are positional arguments, as either of these two forms:
+  - `<guild_id>`: Export all channels in given guild
+  - `<guild_id>/<channel_id>`: Export specific channel in guild
+
+So for example `historic 1234 9999/123` exports
+  - All channels in guild ID `1234`
+  - Channel `123` in guild ID `9999`
 
 **Time frame**
 
@@ -77,7 +87,7 @@ The time frame can be adjusted using flags.
 ```shell
 export INFLUXDB_TOKEN=xxx
 export DISCORD_TOKEN=xxx
-./discord-influx historic \
+./discord-influx historic <org_id> [<org_id> ...] \
   --influxdb-url http://localhost:8086 \
   --influxdb-org my_org \
   --influxdb-bucket my_bucket \
