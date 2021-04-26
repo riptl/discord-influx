@@ -1,10 +1,10 @@
-<center>
 <h1>Discord InfluxDB exporter</h1>
 
-Export Discord chat metrics to InfluxDB time-series DB
-</center>
-
 ![Grafana Preview](preview.png)
+
+<p align="center">
+Export Discord chat metrics to InfluxDB time-series DB
+</p>
 
 ## Building
 
