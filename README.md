@@ -55,6 +55,9 @@ export DISCORD_TOKEN=xxx
 ### History mode
 
 History mode backfills stats of past messages to InfluxDB for the given guilds and channels.
+
+This takes a while because Discord's APIs are heavily rate-limited.
+
 It runs once until the export is complete. This operation is idempotent.
 
 **Targets**
@@ -113,3 +116,23 @@ It exports the following time series:
 | --------------------------- | ------- | ------------------ |
 | `discord_messages`          | `count` | `guild`, `channel` |
 | `discord_message_reactions` | `count` | `guild`, `emoji`   |
+
+## Troubleshooting
+
+### Invalid Discord token
+
+Logs: `{"error": "HTTP 401 Unauthorized, {\"message\": \"401: Unauthorized\", \"code\": 0}", "guild": "xxx"}`
+
+Meaning: Your Discord Bot token is invalid.
+
+### Insufficient Discord permissions
+
+Logs: `{"error": "HTTP 403 Forbidden, {\"message\": \"Missing Access\", \"code\": 50001}", "guild": "xxx"}`
+
+Meaning: Your Discord Bot does not have sufficient permissions.
+
+### Invalid InfluxDB token
+
+Logs: `influxdb2client E! Write error: unauthorized: unauthorized access`
+
+Meaning: Your InfluxDB token is invalid or does not have the required permissions.

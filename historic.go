@@ -24,8 +24,8 @@ var historic = cobra.Command{
 func init() {
 	flags := historic.Flags()
 	addInfluxFlags(flags)
-	flags.String("start", "", "Export messages after this ID or RFC 3339 timestamp")
-	flags.String("stop", "", "Export messages before this ID or RFC 3339 timestamp")
+	flags.String("start", "0", "Export messages after this ID or RFC 3339 timestamp")
+	flags.String("stop", "2199-12-31T23:59:59Z", "Export messages before this ID or RFC 3339 timestamp")
 }
 
 func runHistoric(c *cobra.Command, args []string) {
@@ -59,6 +59,9 @@ func runHistoric(c *cobra.Command, args []string) {
 					zap.String("guild", guildID))
 			}
 			for _, channel := range channels {
+				if channel.Type != discordgo.ChannelTypeGuildText {
+					continue
+				}
 				target := channelTarget{
 					GuildID:   channel.GuildID,
 					ChannelID: channel.ID,
@@ -89,35 +92,38 @@ type bounds struct {
 
 func exportHistoric(influx *influxContext, target channelTarget, b bounds) {
 	log := log.With(zap.String("guild", target.GuildID), zap.String("channel", target.ChannelID))
-	log.Info("Starting export")
-	afterID := "0"
-	if b.start > 0 {
-		afterID = strconv.FormatInt(b.start, 10)
-	}
+	beforeID := strconv.FormatInt(b.stop, 10)
+	log.Info("Starting export", zap.String("before_id", beforeID))
 mainLoop:
 	for i := 0; true; i++ {
-		log.Debug("Processing page", zap.Int("page", i), zap.String("after_id", afterID))
+		log.Debug("Processing page", zap.Int("page", i), zap.String("before_id", beforeID))
 		const limit = 100
-		messages, err := discord.ChannelMessages(target.ChannelID, limit, "", afterID, "")
+		messages, err := discord.ChannelMessages(target.ChannelID, limit, beforeID, "", "")
 		if err != nil {
 			log.Error("Export failed", zap.Error(err))
 		}
+		if len(messages) == 0 {
+			break
+		}
 		for _, message := range messages {
 			msgID := parseMessageID(message.ID)
-			if msgID >= b.stop {
+			if msgID < b.start {
 				break mainLoop
 			}
-			exportHistoricMessage(influx, message)
-			afterID = message.ID
+			log.Debug("Processing message",
+				zap.Int64("message_id", msgID),
+				zap.Time("msg_time", messageTimestamp(message.ID)))
+			exportHistoricMessage(influx, message, target.GuildID)
+			beforeID = message.ID
 		}
 	}
 }
 
-func exportHistoricMessage(influx *influxContext, msg *discordgo.Message) {
+func exportHistoricMessage(influx *influxContext, msg *discordgo.Message, guildID string) {
 	timestamp := messageTimestamp(msg.ID)
 	influx.writeAPI.WritePoint(write.NewPointWithMeasurement(metricMessages).
 		SetTime(timestamp).
-		AddTag(labelGuild, msg.GuildID).
+		AddTag(labelGuild, guildID).
 		AddTag(labelChannel, msg.ChannelID).
 		AddField(fieldCount, 1))
 	for _, reaction := range msg.Reactions {
@@ -126,7 +132,7 @@ func exportHistoricMessage(influx *influxContext, msg *discordgo.Message) {
 		}
 		influx.writeAPI.WritePoint(write.NewPointWithMeasurement(metricReactions).
 			SetTime(timestamp).
-			AddTag(labelGuild, msg.GuildID).
+			AddTag(labelGuild, guildID).
 			AddTag(labelEmoji, reaction.Emoji.Name).
 			AddField(fieldCount, 1))
 	}

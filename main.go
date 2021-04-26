@@ -103,6 +103,9 @@ func readDiscordToken() (discordToken string) {
 	if discordToken == "" {
 		log.Fatal("No Discord token found")
 	}
+	if !strings.ContainsRune(discordToken, ' ') {
+		discordToken = "Bot " + discordToken
+	}
 	return
 }
 
