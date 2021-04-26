@@ -31,7 +31,7 @@ func init() {
 func runLive(c *cobra.Command, _ []string) {
 	influx := newInfluxContextFromFlags(c.Flags())
 	defer influx.close()
-	defer discord.Close()
+	defer func() { _ = discord.Close() }()
 	log.Info("Starting Discord-InfluxDB live exporter")
 	defer log.Info("Stopping")
 	discord.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {

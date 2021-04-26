@@ -45,7 +45,7 @@ func runHistoric(c *cobra.Command, args []string) {
 	}
 	influx := newInfluxContextFromFlags(c.Flags())
 	defer influx.close()
-	defer discord.Close()
+	defer func() { _ = discord.Close() }()
 	// Parse guild/channel targets.
 	targets := make(map[channelTarget]struct{})
 	for _, arg := range args {

@@ -16,7 +16,7 @@ import (
 
 func main() {
 	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
+		_, _ = fmt.Fprintln(os.Stderr, err.Error())
 	}
 }
 
