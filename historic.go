@@ -126,6 +126,11 @@ func exportHistoricMessage(influx *influxContext, msg *discordgo.Message, guildI
 		AddTag(labelGuild, guildID).
 		AddTag(labelChannel, msg.ChannelID).
 		AddField(fieldCount, 1))
+	influx.writeAPI.WritePoint(write.NewPointWithMeasurement(metricUserMessages).
+		SetTime(timestamp).
+		AddTag(labelGuild, guildID).
+		AddTag(labelUser, msg.Author.String()).
+		AddField(fieldCount, 1))
 	for _, reaction := range msg.Reactions {
 		if reaction.Emoji == nil {
 			continue

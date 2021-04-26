@@ -137,12 +137,14 @@ func readInfluxToken() (influxToken string) {
 
 // InfluxDB identifiers.
 const (
-	metricMessages  = "discord_messages"
-	metricReactions = "discord_message_reactions"
+	metricMessages     = "discord_messages"
+	metricUserMessages = "discord_user_messages"
+	metricReactions    = "discord_message_reactions"
 
 	labelGuild   = "guild"
 	labelChannel = "channel"
 	labelEmoji   = "emoji"
+	labelUser    = "user"
 
 	fieldCount = "count"
 )

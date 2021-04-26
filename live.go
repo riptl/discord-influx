@@ -39,10 +39,16 @@ func runLive(c *cobra.Command, _ []string) {
 			zap.String("guild_id", m.GuildID),
 			zap.String("channel_id", m.ChannelID),
 			zap.String("message_id", m.Message.ID))
+		timestamp := messageTimestamp(m.Message.ID)
 		influx.writeAPI.WritePoint(write.NewPointWithMeasurement(metricMessages).
-			SetTime(messageTimestamp(m.Message.ID)).
+			SetTime(timestamp).
 			AddTag(labelGuild, m.GuildID).
 			AddTag(labelChannel, m.ChannelID).
+			AddField(fieldCount, 1))
+		influx.writeAPI.WritePoint(write.NewPointWithMeasurement(metricUserMessages).
+			SetTime(timestamp).
+			AddTag(labelGuild, m.GuildID).
+			AddTag(labelUser, m.Author.String()).
 			AddField(fieldCount, 1))
 		log.Debug("MessageCreate")
 	})
@@ -65,8 +71,9 @@ func runLive(c *cobra.Command, _ []string) {
 			zap.String("channel_id", m.ChannelID),
 			zap.String("message_id", m.MessageID),
 			zap.String("emoji", m.Emoji.Name))
+		timestamp := messageTimestamp(m.MessageID)
 		influx.writeAPI.WritePoint(write.NewPointWithMeasurement(metricReactions).
-			SetTime(messageTimestamp(m.MessageID)).
+			SetTime(timestamp).
 			AddTag(labelGuild, m.GuildID).
 			AddTag(labelEmoji, m.Emoji.Name).
 			AddField(fieldCount, -1))

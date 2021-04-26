@@ -108,6 +108,7 @@ With the following labels:
 | --------- | ------------------------- |
 | `guild`   | Guild ID                  |
 | `channel` | Channel Name              |
+| `user`    | Username `nick#1234`      |
 | `emoji`   | Emoji char or reaction ID |
 
 It exports the following time series:
@@ -115,6 +116,7 @@ It exports the following time series:
 | Name                        | Field   | Labels             |
 | --------------------------- | ------- | ------------------ |
 | `discord_messages`          | `count` | `guild`, `channel` |
+| `discord_user_messages`     | `count` | `guild`, `user`    |
 | `discord_message_reactions` | `count` | `guild`, `emoji`   |
 
 ## Troubleshooting
