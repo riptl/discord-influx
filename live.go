@@ -77,7 +77,7 @@ func runLive(c *cobra.Command, _ []string) {
 		log.Fatal("Failed to connect to Discord", zap.Error(err))
 	}
 	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, os.Interrupt, os.Kill)
+	signal.Notify(interrupt, os.Interrupt)
 	<-interrupt
 }
 
