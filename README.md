@@ -6,7 +6,9 @@
 Export Discord chat metrics to InfluxDB time-series DB
 </p>
 
-## Building
+## Installation
+
+### From source
 
 Requirements: Go 1.16
 
@@ -14,6 +16,21 @@ Requirements: Go 1.16
 git clone https://github.com/terorie/discord-influx.git
 go build -o ./discord-influx .
 ```
+
+### Docker (from source)
+
+```shell
+git clone https://github.com/terorie/discord-influx.git
+docker build -t terorie/discord-influx .
+```
+
+### Docker (binary)
+
+```shell
+docker pull ghcr.io/terorie/discord-influx:latest
+```
+
+Source: https://github.com/users/terorie/packages/container/package/discord-influx
 
 ## Usage
 
@@ -118,6 +135,16 @@ It exports the following time series:
 | `discord_messages`          | `count` | `guild`, `channel` |
 | `discord_user_messages`     | `count` | `guild`, `user`    |
 | `discord_message_reactions` | `count` | `guild`, `emoji`   |
+
+## Attributions
+
+This project is made possible by:
+
+- The [Go programming language](https://golang.org/)
+- The [InfluxDB time-series database](https://www.influxdata.com/)
+- [bwmarrin/discordgo](https://github.com/bwmarrin/discordgo)
+- [spf13/cobra](https://github.com/spf13/cobra) CLI tooling
+- Uber's [zap](https://github.com/uber-go/zap) logger
 
 ## Troubleshooting
 
